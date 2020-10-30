@@ -1,0 +1,61 @@
+!apt-get install openjdk-8-jdk-headless -qq > /dev/null
+!wget -q https://www-us.apache.org/dist/spark/spark-3.0.1/spark-3.0.1-bin-hadoop2.7.tgz      #replace with latest version of spark available
+!tar -xvf spark-3.0.1-bin-hadoop2.7.tgz
+!pip install -q findspark
+
+import os
+os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-8-openjdk-amd64"
+os.environ["SPARK_HOME"] = "/content/spark-3.0.1-bin-hadoop2.7"
+
+pip install pyspark
+
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.appName('DA2').getOrCreate()
+
+from pyspark.ml.regression import LinearRegression
+
+data = spark.read.csv("train.csv",inferSchema=True,header=True)
+#we will add a filter to remove the null values from our dependent variable
+data = data.filter("LoanAmount is not NULL")
+data.printSchema()
+
+from pyspark.ml.feature import (VectorAssembler, VectorIndexer)
+#lets define what inputs will go into our vector and give a name for the output of it
+lassembler = VectorAssembler(
+    inputCols=['ApplicantIncome','CoapplicantIncome'],
+    outputCol='features')
+    
+output = lassembler.transform(data)
+
+output.select("features").show()
+
+loan_data = output.select('features','LoanAmount')
+loan_data.show()
+
+import time
+#splitting train and test data into 70% and 30% of total data available
+train_data,test_data = loan_data.randomSplit([0.7,0.3])
+lr = LinearRegression(labelCol='LoanAmount')
+t1=time.time()
+print("time before ",t1)
+lrModel = lr.fit(train_data)
+t2 = time.time()
+print("time after ",t2)
+print("time taken ",t2-t1)
+test_results = lrModel.evaluate(test_data)
+test_results.residuals.show()
+
+train_data.describe().show()
+
+trainingSummary = lrModel.summary
+print("RMSE: %f" % trainingSummary.rootMeanSquaredError)
+print("r2: %f" % trainingSummary.r2)
+
+test_results = lrModel.evaluate(test_data)
+test_results.residuals.show()
+
+predictions_data = test_data.select('features')
+predictions = lrModel.transform(predictions_data)
+predictions.show()
+
+
